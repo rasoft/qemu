@@ -377,9 +377,9 @@ static void vega_init(MachineState *machine)
         /* Connect CPU timer outputs to GIC PPI inputs */
         const int timer_irq[] = {
             [GTIMER_PHYS] = VEGA_GIC_PPI_PHYSTIMER,
-            // [GTIMER_VIRT] = VEGA_GIC_PPI_VIRTTIMER,
-            // [GTIMER_HYP]  = VEGA_GIC_PPI_HYPTIMER,
-            // [GTIMER_SEC]  = VEGA_GIC_PPI_SECTIMER,
+            [GTIMER_VIRT] = VEGA_GIC_PPI_VIRTTIMER,
+            [GTIMER_HYP]  = VEGA_GIC_PPI_HYPTIMER,
+            [GTIMER_SEC]  = VEGA_GIC_PPI_SECTIMER,
         };
         int ppibase = VEGA_NUM_GIC_SPI + n * GIC_INTERNAL + GIC_NR_SGIS;
         for (int irq = 0; irq < ARRAY_SIZE(timer_irq); irq++) {
