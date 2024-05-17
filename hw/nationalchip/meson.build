@@ -8,6 +8,7 @@ arm_ss.add(files(
     'dwc_emac.c',
 #    'dwc_sdhc.c',
 #    'gx_ahci.c',
+    'gx_rtc.c',
     'gx_vega_syscfg.c',
 ))
 

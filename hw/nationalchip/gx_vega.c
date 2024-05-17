@@ -38,7 +38,9 @@
 
 #include "dw_apb_uart.h"
 #include "dwc_emac.h"
+
 #include "gx_vega_syscfg.h"
+#include "gx_rtc.h"
 
 #define VEGA_NUM_CPUS       2
 #define VEGA_NUM_GIC_SPI    128
@@ -406,9 +408,12 @@ static void vega_init(MachineState *machine)
         sysbus_connect_irq(s, 0, qdev_get_gpio_in(DEVICE(gic), VEGA_GIC_SPI_DW_UART0));
     }
 
+    /* RTC */
+    sysbus_create_simple(TYPE_GX_RTC, _vega_memmap[VEGA_DEV_GX_RTC],
+                         qdev_get_gpio_in(DEVICE(gic), VEGA_GIC_SPI_RTC));
+
     /* Ethernet */
     {
-#if 1
         DeviceState *dev = qemu_create_nic_device(TYPE_DWC_EMAC, true, NULL);
         if (dev) {
             SysBusDevice *s = SYS_BUS_DEVICE(dev);
@@ -416,18 +421,6 @@ static void vega_init(MachineState *machine)
             sysbus_mmio_map(s, 0, _vega_memmap[VEGA_DEV_GMAC]);
             sysbus_connect_irq(s, 0, qdev_get_gpio_in(DEVICE(gic), VEGA_GIC_SPI_MAC_WORK));
         }
-#else
-        DeviceState *dev = qdev_new(TYPE_DWC_EMAC);
-        SysBusDevice *s = SYS_BUS_DEVICE(dev);
-        if (nd_table[0].used) {
-            qemu_check_nic_model(&nd_table[0], TYPE_DWC_EMAC);
-            qdev_set_nic_properties(dev, &nd_table[0]);
-        }
-        // object_property_set_link(OBJECT(dev), "dma-memory", OBJECT(get_system_memory()), &error_fatal);
-        sysbus_realize_and_unref(s, &error_fatal);
-        sysbus_mmio_map(s, 0, _vega_memmap[VEGA_DEV_GMAC]);
-        sysbus_connect_irq(s, 0, qdev_get_gpio_in(DEVICE(gic), VEGA_GIC_SPI_MAC_WORK));
-#endif
     }
 
     /* USB */
