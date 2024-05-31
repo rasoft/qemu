@@ -37,6 +37,7 @@
 #include "sysemu/sysemu.h"
 
 #include "dw_apb_uart.h"
+#include "dwc_ssi_gx.h"
 #include "dwc_emac.h"
 
 #include "gx_vega_syscfg.h"
@@ -411,6 +412,33 @@ static void vega_init(MachineState *machine)
     /* RTC */
     sysbus_create_simple(TYPE_GX_RTC, _vega_memmap[VEGA_DEV_GX_RTC],
                          qdev_get_gpio_in(DEVICE(gic), VEGA_GIC_SPI_RTC));
+
+    /* SPI Flash */
+    #define DEFAULT_FLASH_TYPE  "w25q64"
+    {
+        DeviceState *dev = qdev_new(TYPE_DWC_SSI_GX);
+        SysBusDevice *s = SYS_BUS_DEVICE(dev);
+
+        sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+        memory_region_add_subregion(sysmem, _vega_memmap[VEGA_DEV_DW_SPI], sysbus_mmio_get_region(s, 0));
+        sysbus_connect_irq(s, 0, qdev_get_gpio_in(DEVICE(gic), VEGA_GIC_SPI_DW_SPI));
+
+        DriveInfo *dinfo = drive_get(IF_MTD, 0, 0);
+        if (dinfo) {
+            // get flash type
+            const char *flash_type = getenv("VEGA_FLASH_TYPE");
+            if (flash_type == NULL) {
+                flash_type = DEFAULT_FLASH_TYPE;
+            }
+
+            DeviceState *ssi_dev = qdev_new(flash_type);
+            qdev_prop_set_drive_err(ssi_dev, "drive", blk_by_legacy_dinfo(dinfo), &error_fatal);
+            qdev_realize_and_unref(ssi_dev, BUS(DWC_SSI_GX(dev)->ssi), &error_fatal);
+
+            qdev_connect_gpio_out_named(dev, "dev-cs", 0, qdev_get_gpio_in_named(ssi_dev, SSI_GPIO_CS, 0));
+            printf("[TREC.SOC] Attach a %s SPI Flash\n", flash_type);
+        }
+    }
 
     /* Ethernet */
     {

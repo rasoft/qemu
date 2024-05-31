@@ -5,6 +5,7 @@ arm_ss.add(files(
     'dw_apb_uart.c',
     'dw_apb_wdt.c',
     'dwc_ssi.c',
+    'dwc_ssi_gx.c',
     'dwc_emac.c',
 #    'dwc_sdhc.c',
 #    'gx_ahci.c',

@@ -67,4 +67,4 @@ subdir('sparc64')
 subdir('tricore')
 subdir('xtensa')
 
-subdir('nationalchip')
+subdir('gx')

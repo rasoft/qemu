@@ -26,8 +26,7 @@ static uint64_t _gx_vega_syscfg_read(void *opaque, hwaddr offset, unsigned size)
         return (0x1 << 30) | (0x6633 << 14) | (0x0);
 
     default:
-        qemu_log_mask(LOG_GUEST_ERROR, "%s: Bad offset %x\n", __FUNCTION__, (int)offset);
-        printf("%s: Bad offset %x\n", __FUNCTION__, (int)offset);
+        qemu_log_mask(LOG_UNIMP, "%s: Bad offset %x\n", __FUNCTION__, (int)offset);
     }
 
     return ret;
@@ -45,8 +44,7 @@ static void _gx_vega_syscfg_write(void *opaque, hwaddr offset, uint64_t value,
 
     switch (offset) {
     default:
-        qemu_log_mask(LOG_GUEST_ERROR, "%s: Bad offset %x\n", __FUNCTION__, (int)offset);
-        printf("%s: Bad offset %x\n", __FUNCTION__, (int)offset);
+        qemu_log_mask(LOG_UNIMP, "%s: Bad offset %x\n", __FUNCTION__, (int)offset);
     }
 }
 

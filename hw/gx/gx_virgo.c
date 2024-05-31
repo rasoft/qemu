@@ -71,10 +71,13 @@
 #include "hw/firmware/smbios.h"
 #include "qapi/visitor.h"
 #include "qapi/qapi-visit-common.h"
+#include "qapi/qmp/qlist.h"
 #include "standard-headers/linux/input.h"
 #include "hw/arm/smmuv3.h"
 #include "hw/acpi/acpi.h"
 #include "target/arm/internals.h"
+#include "target/arm/multiprocessing.h"
+#include "target/arm/gtimer.h"
 #include "hw/mem/pc-dimm.h"
 #include "hw/mem/nvdimm.h"
 #include "hw/acpi/generic_event_device.h"
@@ -768,6 +771,20 @@ static void create_v2m(VirgoMachineState *vms)
     vms->msi_controller = VIRGO_MSI_CTRL_GICV2M;
 }
 
+/*
+ * If the CPU has FEAT_NMI, then turn on the NMI support in the GICv3 too.
+ * It's permitted to have a configuration with NMI in the CPU (and thus the
+ * GICv3 CPU interface) but not in the distributor/redistributors, but it's
+ * not very useful.
+ */
+static bool gicv3_nmi_present(VirgoMachineState *vms)
+{
+    ARMCPU *cpu = ARM_CPU(qemu_get_cpu(0));
+
+    return tcg_enabled() && cpu_isar_feature(aa64_nmi, cpu) &&
+           (vms->gic_version != VIRGO_GIC_VERSION_2);
+}
+
 static void create_gic(VirgoMachineState *vms, MemoryRegion *mem)
 {
     MachineState *ms = MACHINE(vms);
@@ -810,14 +827,23 @@ static void create_gic(VirgoMachineState *vms, MemoryRegion *mem)
     }
 
     if (vms->gic_version != VIRGO_GIC_VERSION_2) {
+        QList *redist_region_count;
         uint32_t redist0_capacity = virgo_redist_capacity(vms, VIRGO_GIC_REDIST);
         uint32_t redist0_count = MIN(smp_cpus, redist0_capacity);
 
         nb_redist_regions = virgo_gicv3_redist_region_count(vms);
 
-        qdev_prop_set_uint32(vms->gic, "len-redist-region-count",
-                             nb_redist_regions);
-        qdev_prop_set_uint32(vms->gic, "redist-region-count[0]", redist0_count);
+        redist_region_count = qlist_new();
+        qlist_append_int(redist_region_count, redist0_count);
+        if (nb_redist_regions == 2) {
+            uint32_t redist1_capacity =
+                virgo_redist_capacity(vms, VIRGO_HIGH_GIC_REDIST2);
+
+            qlist_append_int(redist_region_count,
+                MIN(smp_cpus - redist0_count, redist1_capacity));
+        }
+        qdev_prop_set_array(vms->gic, "redist-region-count",
+                            redist_region_count);
 
         if (!kvm_irqchip_in_kernel()) {
             if (vms->tcg_its) {
@@ -826,20 +852,17 @@ static void create_gic(VirgoMachineState *vms, MemoryRegion *mem)
                 qdev_prop_set_bit(vms->gic, "has-lpi", true);
             }
         }
-
-        if (nb_redist_regions == 2) {
-            uint32_t redist1_capacity =
-                virgo_redist_capacity(vms, VIRGO_HIGH_GIC_REDIST2);
-
-            qdev_prop_set_uint32(vms->gic, "redist-region-count[1]",
-                MIN(smp_cpus - redist0_count, redist1_capacity));
-        }
     } else {
         if (!kvm_irqchip_in_kernel()) {
             qdev_prop_set_bit(vms->gic, "has-virtualization-extensions",
                               vms->virt);
         }
     }
+
+    if (gicv3_nmi_present(vms)) {
+        qdev_prop_set_bit(vms->gic, "has-nmi", true);
+    }
+
     gicbusdev = SYS_BUS_DEVICE(vms->gic);
     sysbus_realize_and_unref(gicbusdev, &error_fatal);
     sysbus_mmio_map(gicbusdev, 0, vms->memmap[VIRGO_GIC_DIST].base);
@@ -859,12 +882,12 @@ static void create_gic(VirgoMachineState *vms, MemoryRegion *mem)
 
     /* Wire the outputs from each CPU's generic timer and the GICv3
      * maintenance interrupt signal to the appropriate GIC PPI inputs,
-     * and the GIC's IRQ/FIQ/VIRQ/VFIQ interrupt outputs to the CPU's inputs.
+     * and the GIC's IRQ/FIQ/VIRQ/VFIQ/NMI/VINMI interrupt outputs to the
+     * CPU's inputs.
      */
     for (i = 0; i < smp_cpus; i++) {
         DeviceState *cpudev = DEVICE(qemu_get_cpu(i));
-        int ppibase = NUM_IRQS + i * GIC_INTERNAL + GIC_NR_SGIS;
-
+        int intidbase = NUM_IRQS + i * GIC_INTERNAL;
         /* Mapping from the output timer irq lines from the CPU to the
          * GIC PPI inputs we use for the virt board.
          */
@@ -873,27 +896,28 @@ static void create_gic(VirgoMachineState *vms, MemoryRegion *mem)
             [GTIMER_VIRT] = ARCH_TIMER_VIRGO_IRQ,
             [GTIMER_HYP]  = ARCH_TIMER_NS_EL2_IRQ,
             [GTIMER_SEC]  = ARCH_TIMER_S_EL1_IRQ,
+            [GTIMER_HYPVIRT] = ARCH_TIMER_NS_EL2_VIRGO_IRQ,
         };
 
-        for (int irq = 0; irq < ARRAY_SIZE(timer_irq); irq++) {
+        for (unsigned irq = 0; irq < ARRAY_SIZE(timer_irq); irq++) {
             qdev_connect_gpio_out(cpudev, irq,
                                   qdev_get_gpio_in(vms->gic,
-                                                   ppibase + timer_irq[irq]));
+                                                   intidbase + timer_irq[irq]));
         }
 
         if (vms->gic_version != VIRGO_GIC_VERSION_2) {
             qemu_irq irq = qdev_get_gpio_in(vms->gic,
-                                            ppibase + ARCH_GIC_MAINT_IRQ);
+                                            intidbase + ARCH_GIC_MAINT_IRQ);
             qdev_connect_gpio_out_named(cpudev, "gicv3-maintenance-interrupt",
                                         0, irq);
         } else if (vms->virt) {
             qemu_irq irq = qdev_get_gpio_in(vms->gic,
-                                            ppibase + ARCH_GIC_MAINT_IRQ);
+                                            intidbase + ARCH_GIC_MAINT_IRQ);
             sysbus_connect_irq(gicbusdev, i + 4 * smp_cpus, irq);
         }
 
         qdev_connect_gpio_out_named(cpudev, "pmu-interrupt", 0,
-                                    qdev_get_gpio_in(vms->gic, ppibase
+                                    qdev_get_gpio_in(vms->gic, intidbase
                                                      + VIRTUAL_PMU_IRQ));
 
         sysbus_connect_irq(gicbusdev, i, qdev_get_gpio_in(cpudev, ARM_CPU_IRQ));
@@ -903,6 +927,13 @@ static void create_gic(VirgoMachineState *vms, MemoryRegion *mem)
                            qdev_get_gpio_in(cpudev, ARM_CPU_VIRQ));
         sysbus_connect_irq(gicbusdev, i + 3 * smp_cpus,
                            qdev_get_gpio_in(cpudev, ARM_CPU_VFIQ));
+
+        if (vms->gic_version != VIRGO_GIC_VERSION_2) {
+            sysbus_connect_irq(gicbusdev, i + 4 * smp_cpus,
+                               qdev_get_gpio_in(cpudev, ARM_CPU_NMI));
+            sysbus_connect_irq(gicbusdev, i + 5 * smp_cpus,
+                               qdev_get_gpio_in(cpudev, ARM_CPU_VINMI));
+        }
     }
 
     fdt_add_gic_node(vms);
