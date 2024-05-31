@@ -374,6 +374,7 @@ static void vega_init(MachineState *machine)
         cs->cpu_index = n;
         object_property_set_bool(cpuobj, "has_el3", true, NULL);
         object_property_set_bool(cpuobj, "has_el2", false, NULL);
+        object_property_set_int(cpuobj, "cntfrq", 27000000, NULL);
 
         qdev_realize(DEVICE(cpuobj), NULL, &error_fatal);
 
@@ -393,7 +394,7 @@ static void vega_init(MachineState *machine)
         sysbus_connect_irq(SYS_BUS_DEVICE(gic), n + (0 * VEGA_NUM_CPUS), qdev_get_gpio_in(DEVICE(cpuobj), ARM_CPU_IRQ));
         sysbus_connect_irq(SYS_BUS_DEVICE(gic), n + (1 * VEGA_NUM_CPUS), qdev_get_gpio_in(DEVICE(cpuobj), ARM_CPU_FIQ));
         // sysbus_connect_irq(SYS_BUS_DEVICE(gic), n + (2 * VEGA_NUM_CPUS), qdev_get_gpio_in(DEVICE(cpuobj), ARM_CPU_VIRQ));
-        // sysbus_connect_irq(SYS_BUS_DEVICE(gic), n + (3 * VEGA_NUM_CPUS), qdev_get_gpio_in(DEVICE(cpuobj), ARM_CPU_VFIQ))
+        // sysbus_connect_irq(SYS_BUS_DEVICE(gic), n + (3 * VEGA_NUM_CPUS), qdev_get_gpio_in(DEVICE(cpuobj), ARM_CPU_VFIQ));
 
         /* GIC maintenance signal */
         // sysbus_connect_irq(SYS_BUS_DEVICE(gic), n + (4 * VEGA_NUM_CPUS), qdev_get_gpio_in(DEVICE(gic), ppibase + VEGA_GIC_PPI_MAINT));
